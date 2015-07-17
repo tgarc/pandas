@@ -1435,10 +1435,47 @@ class NDFrame(PandasObject):
         it is a superset of xs functionality, see :ref:`MultiIndex Slicers <advanced.mi_slicers>`
 
         """
+
         if copy is not None:
             warnings.warn("copy keyword is deprecated, "
                           "default is to return a copy or a view if possible")
 
+        axis = self._get_axis_number(axis)
+        axis_indexer = [ slice(None) ] * self.ndim
+
+        indexer = self._get_axis(axis)
+
+        if not isinstance(indexer,MultiIndex) or (level is None and drop_level):
+            # .loc works directly if the key is already ordered and you don't
+            # mind dropping levels (or if it's a regular index)
+            axis_indexer[axis] = key
+            return self.loc[tuple(axis_indexer)]
+
+        if level is None:
+            # fill in with slice(None)s to keep from dropping levels
+            slicer = [ slice(None) ] * indexer.nlevels
+            # Q: is it ok to always expect tuple for a multi-index key?
+            for i,k in enumerate(key if type(key) is tuple else (key,)):
+                slicer[i] = k
+            return self.loc[tuple(slicer)]
+
+        # let get_loc_level handle cases with both key and level
+        slicer, new_indexer = indexer.get_loc_level(key
+                                                    ,level=level
+                                                    ,drop_level=drop_level)
+        axis_indexer[axis] = slicer
+        result = self.loc[tuple(axis_indexer)]
+
+        # apply the new index to the result to drop levels as necessary
+        setattr(result,result._get_axis_name(axis), new_indexer)
+
+        # this could be a view
+        # but only in a single-dtyped view slicable case
+        result._set_is_copy(self, copy=not result._is_view)
+
+        return result
+
+        ###
         axis = self._get_axis_number(axis)
         labels = self._get_axis(axis)
         if level is not None:
